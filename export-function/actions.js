@@ -13,38 +13,56 @@ let connection = mysql.createConnection({
   database: 'bamazon_db'
 });
 
-const buyProduct = (id, quantity) => {
+const buyProduct = (id, quantity, productsBought) => {
   connection.query('SELECT * FROM products', (err, res) => {
     if (err) throw err;
-    let curProduct = res.filter(product => product.item_id === id)[0];
-    if (curProduct.stock_quantity < quantity) {
+    let currProduct = res.find(product => product.item_id === id);
+
+    if (currProduct.stock_quantity < quantity) {
       console.log('Not enough quantity');
     } else {
-      let curProductSale = curProduct.price * quantity;
-      connection.query('UPDATE products SET ? WHERE ?', [
-        { stock_quantity: curProduct.stock_quantity - quantity },
+      currProduct.product_sales = currProduct.price * quantity;
+      const { item_id, product_name, price, product_sales } = currProduct;
+      productsBought.find(product => product.item_id === currProduct.item_id)
+        ? productsBought.forEach(product => {
+            if (product.item_id === currProduct.item_id) {
+              product.quantity += quantity;
+              product.product_sales += currProduct.product_sales;
+            }
+          })
+        : productsBought.push({
+            item_id,
+            product_name,
+            price,
+            quantity,
+            product_sales
+          });
+      connection.query('UPDATE products SET ?,? WHERE ?', [
+        { stock_quantity: currProduct.stock_quantity - quantity },
+        { product_sales: currProduct.product_sales },
         { item_id: id }
       ]);
       connection.query('SELECT * FROM departments', (err, res) => {
         if (err) throw err;
+
         const [product_sale, total_profit] = res
           .filter(
             department =>
-              department.department_name === curProduct.department_name
+              department.department_name === currProduct.department_name
           )
           .map(department => {
             return [
-              department.product_sales + curProductSale,
-              department.total_profit + curProductSale
+              department.product_sales + currProduct.product_sales,
+              department.total_profit + currProduct.product_sales
             ];
           })[0];
         connection.query('UPDATE departments SET ? WHERE ?', [
           { product_sales: product_sale },
-          { department_name: curProduct.department_name }
+          { department_name: currProduct.department_name }
         ]);
         connection.query('UPDATE departments SET ? WHERE ?', [
           { total_profit: total_profit },
-          { department_name: curProduct.department_name }
+          { department_name: currProduct.department_name }
         ]);
       });
     }
@@ -85,8 +103,10 @@ const addToInventory = () => {
         ]);
       })
       .then(() => {
-        setTimeout(() => viewItems.viewProducts(res), 500);
-        setTimeout(() => bamazonManager.managerFunction(res), 600);
+        connection.query('SELECT * FROM products', (err, products) => {
+          if (err) throw err;
+          viewItems.viewProducts(products);
+        });
       });
   });
 };
@@ -140,9 +160,11 @@ const addNewProduct = () => {
         })
         .then(() => {
           setTimeout(() => {
-            viewItems.viewProducts(products);
-            viewItems.viewDepartments();
-            setTimeout(() => bamazonManager.managerFunction(products), 100);
+            connection.query('SELECT * FROM products', (err, products) => {
+              if (err) throw err;
+              viewItems.viewProducts(products);
+            });
+            // setTimeout(() => bamazonManager.managerFunction(products), 100);
           }, 600);
         });
     });
@@ -180,8 +202,9 @@ const createNewDept = () => {
           over_head_costs: ans.over_head_costs,
           total_profit: -ans.over_head_costs
         });
-      })
-      .then(() => bamazonSupervisor.supervisorFunction());
+        setTimeout(() => viewItems.viewDepartments(), 500);
+      });
+    // .then(() => bamazonSupervisor.supervisorFunction());
   });
 };
 
